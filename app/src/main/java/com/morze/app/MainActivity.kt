@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -16,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -30,6 +32,7 @@ import android.widget.Toast
 import com.morze.app.dsp.Alphabet
 import com.morze.app.dsp.MorseAudioProcessor
 import com.morze.app.dsp.MorseTimingDecoder
+import com.morze.app.text.GroupFormat
 import kotlin.math.roundToInt
 
 class MainActivity : Activity(), MorseTimingDecoder.Listener {
@@ -42,6 +45,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
     private lateinit var textScroll: ScrollView
     private lateinit var decodedText: TextView
     private lateinit var alphabetGroup: RadioGroup
+    private lateinit var groupMode: CheckBox
     private lateinit var autoFrequency: CheckBox
     private lateinit var frequencyBar: SeekBar
     private lateinit var frequencyValue: TextView
@@ -56,6 +60,8 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
     private lateinit var prefs: SharedPreferences
     private val mainHandler = Handler(Looper.getMainLooper())
     private val text = StringBuilder()
+    private val groupFormat = GroupFormat()
+    private var defaultTextSizePx = 0f
 
     private val processor = MorseAudioProcessor(SAMPLE_RATE, this)
 
@@ -82,6 +88,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         textScroll = findViewById(R.id.textScroll)
         decodedText = findViewById(R.id.decodedText)
         alphabetGroup = findViewById(R.id.alphabet)
+        groupMode = findViewById(R.id.groupMode)
         autoFrequency = findViewById(R.id.autoFrequency)
         frequencyBar = findViewById(R.id.frequency)
         frequencyValue = findViewById(R.id.frequencyValue)
@@ -99,7 +106,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
 
         savedInstanceState?.getString(STATE_TEXT)?.let {
             text.append(it)
-            decodedText.text = text
+            showText()
         }
     }
 
@@ -121,6 +128,18 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
             val selected = if (checkedId == R.id.alphabetLatin) Alphabet.LATIN else Alphabet.CYRILLIC
             processor.alphabet = selected
             prefs.edit().putString(PREF_ALPHABET, selected.name).apply()
+        }
+
+        defaultTextSizePx = decodedText.textSize
+        groupMode.isChecked = prefs.getBoolean(PREF_GROUP_MODE, true)
+        groupMode.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(PREF_GROUP_MODE, checked).apply()
+            fitTextSize()
+            showText()
+        }
+        // Шрифт подбирается под ширину поля, чтобы 5 групп помещались в строку.
+        decodedText.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) fitTextSize()
         }
 
         frequencyBar.max = (MAX_FREQUENCY - MIN_FREQUENCY) / FREQUENCY_STEP
@@ -177,12 +196,12 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         }
         findViewById<Button>(R.id.clear).setOnClickListener {
             text.clear()
-            decodedText.text = ""
+            showText()
             currentCode.text = ""
         }
         findViewById<Button>(R.id.copy).setOnClickListener {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), text.toString().trim()))
+            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), displayedText()))
             Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show()
         }
     }
@@ -358,18 +377,44 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
 
     override fun onErrorCode() {
         mainHandler.post {
-            // Стираем последнее слово, как принято при приёме кода «ошибка».
-            val trimmed = text.trimEnd()
-            val lastSpace = trimmed.lastIndexOf(' ')
-            text.setLength(if (lastSpace >= 0) lastSpace + 1 else 0)
-            decodedText.text = text
+            // Стираем последнюю группу (или слово), как принято при приёме кода «ошибка».
+            if (groupMode.isChecked) {
+                text.setLength(text.length - groupFormat.lastGroupLength(text))
+            } else {
+                val trimmed = text.trimEnd()
+                val lastSpace = trimmed.lastIndexOf(' ')
+                text.setLength(if (lastSpace >= 0) lastSpace + 1 else 0)
+            }
+            showText()
         }
     }
 
     private fun appendText(fragment: String) {
         text.append(fragment)
-        decodedText.text = text
+        showText()
         textScroll.post { textScroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun displayedText(): String =
+        if (groupMode.isChecked) groupFormat.format(text) else text.toString().trim()
+
+    private fun showText() {
+        decodedText.text = if (groupMode.isChecked) groupFormat.format(text) else text
+    }
+
+    /** В режиме групп уменьшает шрифт так, чтобы строка из 5 групп влезала по ширине. */
+    private fun fitTextSize() {
+        val available = decodedText.width - decodedText.paddingLeft - decodedText.paddingRight
+        if (available <= 0) return
+        var size = defaultTextSizePx
+        if (groupMode.isChecked) {
+            val paint = Paint(decodedText.paint)
+            paint.textSize = defaultTextSizePx
+            // Самые широкие буквы, чтобы любая строка гарантированно помещалась.
+            val widest = "Ш".repeat(groupFormat.lineLength)
+            size = minOf(size, defaultTextSizePx * available / paint.measureText(widest) * 0.98f)
+        }
+        decodedText.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
     }
 
     private fun applySystemBarInsets(root: View) {
@@ -399,6 +444,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         private const val PREF_AUTO_FREQUENCY = "auto_frequency"
         private const val PREF_FREQUENCY = "frequency"
         private const val PREF_SENSITIVITY = "sensitivity"
+        private const val PREF_GROUP_MODE = "group_mode"
         private const val PREF_AUTO_SPEED = "auto_speed"
         private const val PREF_SPEED = "speed"
         private const val PREF_VOLUME = "volume_threshold"

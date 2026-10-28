@@ -11,6 +11,7 @@
     <string name="auto_frequency">Авто-частота</string>
     <string name="frequency_value">%1$d Гц</string>
     <string name="sensitivity">Чувствительность</string>
+    <string name="group_mode">Группы 5×5</string>
     <string name="auto_speed">Авто-скорость</string>
     <string name="speed_value">%1$d гр/мин</string>
     <string name="volume_threshold">Порог громкости</string>

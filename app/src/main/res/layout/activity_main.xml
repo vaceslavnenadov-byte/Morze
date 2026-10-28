@@ -88,29 +88,44 @@
             android:textSize="24sp" />
     </ScrollView>
 
-    <RadioGroup
-        android:id="@+id/alphabet"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <RadioButton
-            android:id="@+id/alphabetCyrillic"
+        <RadioGroup
+            android:id="@+id/alphabet"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="@string/alphabet_cyrillic"
-            android:textColor="@color/text_primary" />
+            android:orientation="horizontal">
 
-        <RadioButton
-            android:id="@+id/alphabetLatin"
-            android:layout_width="0dp"
+            <RadioButton
+                android:id="@+id/alphabetCyrillic"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/alphabet_cyrillic"
+                android:textColor="@color/text_primary" />
+
+            <RadioButton
+                android:id="@+id/alphabetLatin"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/alphabet_latin"
+                android:textColor="@color/text_primary" />
+        </RadioGroup>
+
+        <CheckBox
+            android:id="@+id/groupMode"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/alphabet_latin"
+            android:text="@string/group_mode"
             android:textColor="@color/text_primary" />
-    </RadioGroup>
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
