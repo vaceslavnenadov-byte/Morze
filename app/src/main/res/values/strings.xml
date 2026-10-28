@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Морзе-приёмник</string>
+    <string name="start">Слушать</string>
+    <string name="stop">Стоп</string>
+    <string name="clear">Очистить</string>
+    <string name="copy">Копировать</string>
+    <string name="copied">Текст скопирован</string>
+    <string name="alphabet_cyrillic">Русский</string>
+    <string name="alphabet_latin">Латиница</string>
+    <string name="auto_frequency">Авто-частота</string>
+    <string name="frequency_value">%1$d Гц</string>
+    <string name="sensitivity">Чувствительность</string>
+    <string name="status_idle">Нажмите «Слушать» и поднесите телефон к источнику звука</string>
+    <string name="status_searching">Поиск тона…</string>
+    <string name="status_listening">Тон %1$.0f Гц · %2$.0f зн/мин (%3$.0f WPM)</string>
+    <string name="hint_text">Здесь появится расшифрованный текст</string>
+    <string name="permission_denied">Без доступа к микрофону приём невозможен</string>
+    <string name="mic_error">Не удалось открыть микрофон</string>
+</resources>
