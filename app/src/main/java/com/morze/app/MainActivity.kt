@@ -30,12 +30,14 @@ import android.widget.Toast
 import com.morze.app.dsp.Alphabet
 import com.morze.app.dsp.MorseAudioProcessor
 import com.morze.app.dsp.MorseTimingDecoder
+import kotlin.math.roundToInt
 
 class MainActivity : Activity(), MorseTimingDecoder.Listener {
 
     private lateinit var indicator: View
     private lateinit var status: TextView
     private lateinit var level: ProgressBar
+    private lateinit var levelValue: TextView
     private lateinit var currentCode: TextView
     private lateinit var textScroll: ScrollView
     private lateinit var decodedText: TextView
@@ -44,6 +46,11 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
     private lateinit var frequencyBar: SeekBar
     private lateinit var frequencyValue: TextView
     private lateinit var sensitivityBar: SeekBar
+    private lateinit var autoSpeed: CheckBox
+    private lateinit var speedBar: SeekBar
+    private lateinit var speedValue: TextView
+    private lateinit var volumeBar: SeekBar
+    private lateinit var volumeValue: TextView
     private lateinit var startStop: Button
 
     private lateinit var prefs: SharedPreferences
@@ -70,6 +77,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         indicator = findViewById(R.id.indicator)
         status = findViewById(R.id.status)
         level = findViewById(R.id.level)
+        levelValue = findViewById(R.id.levelValue)
         currentCode = findViewById(R.id.currentCode)
         textScroll = findViewById(R.id.textScroll)
         decodedText = findViewById(R.id.decodedText)
@@ -78,6 +86,11 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         frequencyBar = findViewById(R.id.frequency)
         frequencyValue = findViewById(R.id.frequencyValue)
         sensitivityBar = findViewById(R.id.sensitivity)
+        autoSpeed = findViewById(R.id.autoSpeed)
+        speedBar = findViewById(R.id.speed)
+        speedValue = findViewById(R.id.speedValue)
+        volumeBar = findViewById(R.id.volumeThreshold)
+        volumeValue = findViewById(R.id.volumeThresholdValue)
         startStop = findViewById(R.id.startStop)
 
         applySystemBarInsets(findViewById(R.id.root))
@@ -125,6 +138,31 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
             }
         })
 
+        speedBar.max = MAX_SPEED - MIN_SPEED
+        speedBar.progress = prefs.getInt(PREF_SPEED, 20) - MIN_SPEED
+        autoSpeed.isChecked = prefs.getBoolean(PREF_AUTO_SPEED, true)
+        applySpeed()
+        autoSpeed.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(PREF_AUTO_SPEED, checked).apply()
+            applySpeed()
+        }
+        speedBar.setOnSeekBarChangeListener(object : SimpleSeekBarListener() {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                prefs.edit().putInt(PREF_SPEED, selectedSpeed()).apply()
+                applySpeed()
+            }
+        })
+
+        volumeBar.max = MAX_VOLUME_DB - MIN_VOLUME_DB
+        volumeBar.progress = prefs.getInt(PREF_VOLUME, MIN_VOLUME_DB) - MIN_VOLUME_DB
+        applyVolumeThreshold()
+        volumeBar.setOnSeekBarChangeListener(object : SimpleSeekBarListener() {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                prefs.edit().putInt(PREF_VOLUME, selectedVolumeDb()).apply()
+                applyVolumeThreshold()
+            }
+        })
+
         sensitivityBar.progress = prefs.getInt(PREF_SENSITIVITY, 16)
         processor.minSnrDb = snrForSensitivity(sensitivityBar.progress)
         sensitivityBar.setOnSeekBarChangeListener(object : SimpleSeekBarListener() {
@@ -158,6 +196,34 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         frequencyValue.text = getString(R.string.frequency_value, manualFrequency())
         frequencyValue.alpha = if (auto) 0.4f else 1f
     }
+
+    private fun selectedSpeed() = MIN_SPEED + speedBar.progress
+
+    private fun applySpeed() {
+        val auto = autoSpeed.isChecked
+        // В авто-режиме ползунок задаёт скорость, с которой начинается подстройка.
+        processor.fixedWpm = if (auto) 0.0 else selectedSpeed().toDouble()
+        speedValue.text = getString(R.string.speed_value, selectedSpeed())
+    }
+
+    private fun selectedVolumeDb() = MIN_VOLUME_DB + volumeBar.progress
+
+    /** Крайнее левое положение ползунка — порог выключен. */
+    private fun volumeThresholdEnabled() = volumeBar.progress > 0
+
+    private fun applyVolumeThreshold() {
+        val enabled = volumeThresholdEnabled()
+        processor.minLevelDb = if (enabled) selectedVolumeDb().toDouble() else Double.NEGATIVE_INFINITY
+        volumeValue.text = if (enabled) {
+            getString(R.string.decibels, selectedVolumeDb())
+        } else {
+            getString(R.string.volume_threshold_off)
+        }
+        level.secondaryProgress = if (enabled) levelPercent(selectedVolumeDb().toDouble()) else 0
+    }
+
+    /** Положение уровня [db] на шкале индикатора: от [MIN_VOLUME_DB] до 0 дБ. */
+    private fun levelPercent(db: Double) = ((db - MIN_VOLUME_DB) / -MIN_VOLUME_DB * 100).toInt().coerceIn(0, 100)
 
     /** Чем выше чувствительность, тем меньшее превышение над шумом считается тоном. */
     private fun snrForSensitivity(progress: Int) = 26.0 - progress
@@ -229,7 +295,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
 
     private fun recordLoop(record: AudioRecord) {
         val buffer = ShortArray(SAMPLE_RATE / 50)
-        processor.reset()
+        processor.reset(selectedSpeed().toDouble())
         try {
             record.startRecording()
             while (listening) {
@@ -257,19 +323,18 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
             !listening -> getString(R.string.status_idle)
             frequency <= 0 -> getString(R.string.status_searching)
             else -> {
-                val wpm = processor.decoder.wpm
-                getString(R.string.status_listening, frequency, wpm * 5, wpm)
+                getString(R.string.status_listening, frequency, processor.decoder.wpm)
             }
         }
 
         val detector = processor.keyDetector
         val levelDb = processor.levelDb
-        val noise = detector.noiseDb
-        level.progress = if (!listening || levelDb.isNaN() || noise.isNaN()) {
-            0
+        if (!listening || levelDb.isNaN()) {
+            level.progress = 0
+            levelValue.text = ""
         } else {
-            // 0 — уровень шума, 100 — на 40 дБ выше.
-            ((levelDb - noise) / 40.0 * 100).toInt().coerceIn(0, 100)
+            level.progress = levelPercent(levelDb)
+            levelValue.text = getString(R.string.decibels, levelDb.roundToInt())
         }
 
         val on = listening && detector.keyDown
@@ -334,5 +399,12 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         private const val PREF_AUTO_FREQUENCY = "auto_frequency"
         private const val PREF_FREQUENCY = "frequency"
         private const val PREF_SENSITIVITY = "sensitivity"
+        private const val PREF_AUTO_SPEED = "auto_speed"
+        private const val PREF_SPEED = "speed"
+        private const val PREF_VOLUME = "volume_threshold"
+        private const val MIN_SPEED = 5
+        private const val MAX_SPEED = 60
+        private const val MIN_VOLUME_DB = -100
+        private const val MAX_VOLUME_DB = -10
     }
 }

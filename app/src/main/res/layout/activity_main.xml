@@ -29,13 +29,30 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <ProgressBar
-        android:id="@+id/level"
-        style="@android:style/Widget.Material.ProgressBar.Horizontal"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:max="100" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ProgressBar
+            android:id="@+id/level"
+            style="@android:style/Widget.Material.ProgressBar.Horizontal"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="100" />
+
+        <TextView
+            android:id="@+id/levelValue"
+            android:layout_width="72dp"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:gravity="end"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/currentCode"
@@ -116,6 +133,59 @@
 
         <TextView
             android:id="@+id/frequencyValue"
+            android:layout_width="72dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:textColor="@color/text_secondary" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <CheckBox
+            android:id="@+id/autoSpeed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/auto_speed"
+            android:textColor="@color/text_primary" />
+
+        <SeekBar
+            android:id="@+id/speed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/speedValue"
+            android:layout_width="88dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:textColor="@color/text_secondary" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/volume_threshold"
+            android:textColor="@color/text_primary" />
+
+        <SeekBar
+            android:id="@+id/volumeThreshold"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/volumeThresholdValue"
             android:layout_width="72dp"
             android:layout_height="wrap_content"
             android:gravity="end"

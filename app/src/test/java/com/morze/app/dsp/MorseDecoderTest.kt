@@ -118,6 +118,40 @@ class MorseDecoderTest {
     }
 
     @Test
+    fun fixedSpeedDecodesFromFirstCharacter() {
+        for (wpm in listOf(8.0, 35.0)) {
+            val collector = TextCollector()
+            val decoder = MorseTimingDecoder(20.0, Alphabet.LATIN, collector)
+            decoder.fixedWpm = wpm
+            for ((down, ms) in MorseSignal.timings("SOS 73", Alphabet.LATIN, wpm, jitter = 0.1)) {
+                var left = ms
+                while (left > 0) {
+                    decoder.process(down, minOf(left, 10.0))
+                    left -= 10.0
+                }
+            }
+            decoder.flush()
+            assertEquals("$wpm", "SOS 73", collector.toString())
+            assertEquals(wpm, decoder.wpm, 0.01)
+        }
+    }
+
+    @Test
+    fun volumeThresholdIgnoresQuietTone() {
+        // Тон амплитудой 0.01 даёт около -46 дБ.
+        val pcm = MorseSignal.pcm(MorseSignal.timings("TEST TEST", Alphabet.LATIN, 20.0), 44100, 700.0, amplitude = 0.01, noise = 0.001)
+        for ((threshold, expected) in listOf(-60.0 to "TEST TEST", -35.0 to "")) {
+            val collector = TextCollector()
+            val processor = MorseAudioProcessor(44100, collector)
+            processor.alphabet = Alphabet.LATIN
+            processor.minLevelDb = threshold
+            processor.process(pcm, pcm.size)
+            processor.flush()
+            assertEquals("порог $threshold", expected, collector.toString())
+        }
+    }
+
+    @Test
     fun silenceProducesNothing() {
         val collector = TextCollector()
         val processor = MorseAudioProcessor(44100, collector)

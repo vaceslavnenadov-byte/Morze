@@ -29,6 +29,19 @@ class MorseAudioProcessor(
             keyDetector.minSnrDb = value
         }
 
+    var minLevelDb: Double
+        get() = keyDetector.minLevelDb
+        set(value) {
+            keyDetector.minLevelDb = value
+        }
+
+    /** Фиксированная скорость, групп в минуту; 0 — автоопределение. */
+    var fixedWpm: Double
+        get() = decoder.fixedWpm
+        set(value) {
+            decoder.fixedWpm = value
+        }
+
     var alphabet: Alphabet
         get() = decoder.alphabet
         set(value) {
@@ -43,12 +56,13 @@ class MorseAudioProcessor(
     var levelDb = Double.NaN
         private set
 
-    fun reset() {
+    /** Сбрасывает состояние; [initialWpm] — скорость, с которой начинается автоподстройка. */
+    fun reset(initialWpm: Double = decoder.wpm) {
         frameFill = 0
         pendingFrames.clear()
         tracker.reset()
         keyDetector.reset()
-        decoder.reset()
+        decoder.reset(initialWpm)
         levelDb = Double.NaN
     }
 

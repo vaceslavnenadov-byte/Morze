@@ -166,6 +166,8 @@ class FrequencyTracker(
 class KeyDetector(
     /** Минимальное превышение сигнала над шумом, дБ, чтобы вообще считать его тоном. */
     @Volatile var minSnrDb: Double = 10.0,
+    /** Порог громкости, дБ: более тихий тон игнорируется. */
+    @Volatile var minLevelDb: Double = Double.NEGATIVE_INFINITY,
 ) {
     var noiseDb = Double.NaN
         private set
@@ -206,7 +208,7 @@ class KeyDetector(
         if (peakDb < noiseDb) peakDb = noiseDb
 
         val span = peakDb - noiseDb
-        val raw = if (span < minSnrDb) {
+        val raw = if (span < minSnrDb || levelDb < minLevelDb) {
             false
         } else if (keyDown) {
             levelDb > noiseDb + span * 0.4

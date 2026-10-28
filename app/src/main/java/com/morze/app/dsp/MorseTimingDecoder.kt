@@ -36,6 +36,13 @@ class MorseTimingDecoder(
 
     val wpm: Double get() = 1200.0 / unitMs
 
+    /**
+     * Заданная скорость в группах (словах) в минуту; 0 — определять автоматически.
+     * Одна группа из пяти знаков по длительности равна стандартному слову PARIS.
+     */
+    @Volatile
+    var fixedWpm = 0.0
+
     private var dotDashThresholdMs = 2.0 * unitMs
     private val recentMarks = ArrayDeque<Double>()
     private val code = StringBuilder()
@@ -47,6 +54,11 @@ class MorseTimingDecoder(
 
     /** Подаёт очередной кадр длительностью [frameMs] с состоянием ключа [down]. */
     fun process(down: Boolean, frameMs: Double) {
+        val fixed = fixedWpm
+        if (fixed > 0 && unitMs != 1200.0 / fixed) {
+            unitMs = 1200.0 / fixed
+            dotDashThresholdMs = 2.0 * unitMs
+        }
         if (down != keyDown) {
             // Пауза внутри знака ничего не завершает; конец знака ловит checkSilence().
             if (keyDown) onMarkEnd(runMs)
@@ -84,7 +96,7 @@ class MorseTimingDecoder(
         // слишком короткий — щелчок или всплеск шума.
         if (durationMs > MAX_MARK_MS) return
         if (durationMs < minOf(GLITCH_UNITS * unitMs, GLITCH_MAX_MS)) return
-        learn(durationMs)
+        if (fixedWpm <= 0) learn(durationMs)
         code.append(if (durationMs < dotDashThresholdMs) '.' else '-')
         if (code.length > MAX_CODE_LENGTH) code.clear()
         charEmitted = false
