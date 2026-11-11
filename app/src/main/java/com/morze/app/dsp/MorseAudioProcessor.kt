@@ -48,6 +48,12 @@ class MorseAudioProcessor(
             decoder.alphabet = value
         }
 
+    var digitsOnly: Boolean
+        get() = decoder.digitsOnly
+        set(value) {
+            decoder.digitsOnly = value
+        }
+
     /** Частота, на которой сейчас идёт приём, Гц. */
     val frequency: Double
         get() = if (manualFrequency > 0) manualFrequency else tracker.frequency

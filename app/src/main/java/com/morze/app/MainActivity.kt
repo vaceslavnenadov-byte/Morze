@@ -27,6 +27,7 @@ import android.widget.ProgressBar
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.morze.app.dsp.Alphabet
@@ -46,6 +47,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
     private lateinit var decodedText: TextView
     private lateinit var alphabetGroup: RadioGroup
     private lateinit var groupMode: CheckBox
+    private lateinit var digitsMode: Switch
     private lateinit var autoFrequency: CheckBox
     private lateinit var frequencyBar: SeekBar
     private lateinit var frequencyValue: TextView
@@ -89,6 +91,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         decodedText = findViewById(R.id.decodedText)
         alphabetGroup = findViewById(R.id.alphabet)
         groupMode = findViewById(R.id.groupMode)
+        digitsMode = findViewById(R.id.digitsMode)
         autoFrequency = findViewById(R.id.autoFrequency)
         frequencyBar = findViewById(R.id.frequency)
         frequencyValue = findViewById(R.id.frequencyValue)
@@ -128,6 +131,13 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
             val selected = if (checkedId == R.id.alphabetLatin) Alphabet.LATIN else Alphabet.CYRILLIC
             processor.alphabet = selected
             prefs.edit().putString(PREF_ALPHABET, selected.name).apply()
+        }
+
+        digitsMode.isChecked = prefs.getBoolean(PREF_DIGITS_MODE, false)
+        applyDigitsMode()
+        digitsMode.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(PREF_DIGITS_MODE, checked).apply()
+            applyDigitsMode()
         }
 
         defaultTextSizePx = decodedText.textSize
@@ -204,6 +214,15 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
             clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), displayedText()))
             Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun applyDigitsMode() {
+        val digits = digitsMode.isChecked
+        processor.digitsOnly = digits
+        // В цифровом режиме алфавит не используется.
+        for (i in 0 until alphabetGroup.childCount) alphabetGroup.getChildAt(i).isEnabled = !digits
+        findViewById<TextView>(R.id.modeLetters).alpha = if (digits) 0.4f else 1f
+        findViewById<TextView>(R.id.modeDigits).alpha = if (digits) 1f else 0.4f
     }
 
     private fun manualFrequency() = MIN_FREQUENCY + frequencyBar.progress * FREQUENCY_STEP
@@ -444,6 +463,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         private const val PREF_AUTO_FREQUENCY = "auto_frequency"
         private const val PREF_FREQUENCY = "frequency"
         private const val PREF_SENSITIVITY = "sensitivity"
+        private const val PREF_DIGITS_MODE = "digits_mode"
         private const val PREF_GROUP_MODE = "group_mode"
         private const val PREF_AUTO_SPEED = "auto_speed"
         private const val PREF_SPEED = "speed"

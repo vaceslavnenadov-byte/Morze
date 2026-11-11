@@ -41,11 +41,20 @@ object MorseCode {
     /** Код «ошибка» (восемь точек): передающий просит стереть последнее слово. */
     const val ERROR_CODE = "........"
 
+    /** Сокращённые цифры, принятые в цифровых текстах: 1 = А, 2 = У, … 0 = Т. */
+    private val shortDigits = mapOf(
+        ".-" to "1", "..-" to "2", "...-" to "3", "-..." to "7",
+        "-.." to "8", "-." to "9", "-" to "0",
+    )
+
     /** Возвращает символ для кода или null, если код неизвестен. */
     fun decode(code: String, alphabet: Alphabet): String? = when (alphabet) {
         Alphabet.LATIN -> latin[code]
         Alphabet.CYRILLIC -> cyrillic[code]
     }
+
+    /** Расшифровка цифрового текста: полные и сокращённые цифры, всё остальное неизвестно. */
+    fun decodeDigit(code: String): String? = digits[code] ?: shortDigits[code]
 
     /** Обратное преобразование — используется в тестах и для генерации сигналов. */
     fun encode(text: String, alphabet: Alphabet): List<String> {

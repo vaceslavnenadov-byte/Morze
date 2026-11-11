@@ -152,6 +152,23 @@ class MorseDecoderTest {
     }
 
     @Test
+    fun digitsModeDecodesFullAndShortDigits() {
+        val collector = TextCollector()
+        val decoder = MorseTimingDecoder(20.0, Alphabet.CYRILLIC, collector)
+        decoder.digitsOnly = true
+        // Полные цифры, затем сокращённые (А У Ж 4 5 6 Б Д Н Т), затем не-цифра (К).
+        for ((down, ms) in MorseSignal.timings("12345 67890 АУЖ45 6БДНТ К", Alphabet.CYRILLIC, 20.0)) {
+            var left = ms
+            while (left > 0) {
+                decoder.process(down, minOf(left, 10.0))
+                left -= 10.0
+            }
+        }
+        decoder.flush()
+        assertEquals("12345 67890 12345 67890 *", collector.toString())
+    }
+
+    @Test
     fun silenceProducesNothing() {
         val collector = TextCollector()
         val processor = MorseAudioProcessor(44100, collector)

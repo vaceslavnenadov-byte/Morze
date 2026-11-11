@@ -43,6 +43,10 @@ class MorseTimingDecoder(
     @Volatile
     var fixedWpm = 0.0
 
+    /** Режим цифрового текста: все знаки расшифровываются как цифры. */
+    @Volatile
+    var digitsOnly = false
+
     private var dotDashThresholdMs = 2.0 * unitMs
     private val recentMarks = ArrayDeque<Double>()
     private val code = StringBuilder()
@@ -122,7 +126,7 @@ class MorseTimingDecoder(
             listener.onErrorCode()
             return
         }
-        listener.onCharacter(c, MorseCode.decode(c, alphabet) ?: UNKNOWN)
+        listener.onCharacter(c, (if (digitsOnly) MorseCode.decodeDigit(c) else MorseCode.decode(c, alphabet)) ?: UNKNOWN)
     }
 
     private fun learn(durationMs: Double) {
