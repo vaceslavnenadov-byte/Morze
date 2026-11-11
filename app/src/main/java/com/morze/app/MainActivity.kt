@@ -13,6 +13,10 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AudioEffect
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -70,6 +74,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
     @Volatile
     private var listening = false
     private var audioThread: Thread? = null
+    private val audioEffects = mutableListOf<AudioEffect>()
 
     private val statusUpdater = object : Runnable {
         override fun run() {
@@ -305,6 +310,7 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         listening = false
         audioThread?.join(1000)
         audioThread = null
+        releaseAudioEffects()
         startStop.setText(R.string.start)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         mainHandler.removeCallbacks(statusUpdater)
@@ -318,17 +324,42 @@ class MainActivity : Activity(), MorseTimingDecoder.Listener {
         )
         if (minBuffer <= 0) return null
         val bufferSize = maxOf(minBuffer, SAMPLE_RATE / 2 * 2)
-        // VOICE_RECOGNITION обычно отключает шумоподавление и АРУ, которые «съедают» тон.
-        for (source in listOf(MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC)) {
+        // Шумоподавление и АРУ телефона принимают ровный тон за шум и глушат длинные посылки,
+        // поэтому сначала пробуем источники без обработки.
+        val sources = listOf(
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+        )
+        for (source in sources) {
             val record = try {
                 AudioRecord(source, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
             } catch (e: Exception) {
                 null
             }
-            if (record?.state == AudioRecord.STATE_INITIALIZED) return record
+            if (record?.state == AudioRecord.STATE_INITIALIZED) {
+                disableAudioEffects(record.audioSessionId)
+                return record
+            }
             record?.release()
         }
         return null
+    }
+
+    /** Выключает встроенные шумоподавление, АРУ и эхоподавление для сессии записи. */
+    private fun disableAudioEffects(sessionId: Int) {
+        try {
+            if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId)?.let { audioEffects += it.apply { enabled = false } }
+            if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(sessionId)?.let { audioEffects += it.apply { enabled = false } }
+            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId)?.let { audioEffects += it.apply { enabled = false } }
+        } catch (e: Exception) {
+            // Эффекты недоступны на этом устройстве — работаем как есть.
+        }
+    }
+
+    private fun releaseAudioEffects() {
+        audioEffects.forEach { it.release() }
+        audioEffects.clear()
     }
 
     private fun recordLoop(record: AudioRecord) {

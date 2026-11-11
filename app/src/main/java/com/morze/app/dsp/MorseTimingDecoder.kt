@@ -53,6 +53,9 @@ class MorseTimingDecoder(
 
     private var keyDown = false
     private var runMs = 0.0
+
+    /** Посылка, которая только что прервалась и ещё может продолжиться после провала. */
+    private var pendingMarkMs = 0.0
     private var charEmitted = true
     private var wordEmitted = true
 
@@ -64,21 +67,40 @@ class MorseTimingDecoder(
             dotDashThresholdMs = 2.0 * unitMs
         }
         if (down != keyDown) {
-            // Пауза внутри знака ничего не завершает; конец знака ловит checkSilence().
-            if (keyDown) onMarkEnd(runMs)
+            if (keyDown) {
+                // Посылку пока не завершаем: короткий провал может оказаться её частью.
+                pendingMarkMs = runMs
+                runMs = 0.0
+            } else {
+                // Тон вернулся раньше, чем посылка была завершена, — это была одна посылка.
+                runMs = if (pendingMarkMs > 0) pendingMarkMs + runMs else 0.0
+                pendingMarkMs = 0.0
+            }
             keyDown = down
-            runMs = 0.0
         }
         runMs += frameMs
-        if (!keyDown) checkSilence()
+        if (!keyDown) {
+            if (pendingMarkMs > 0 && runMs > dropoutMs()) {
+                onMarkEnd(pendingMarkMs)
+                pendingMarkMs = 0.0
+            }
+            checkSilence()
+        }
     }
+
+    /** Провал короче этого считается помехой внутри посылки, а не паузой между посылками. */
+    private fun dropoutMs() = minOf(DROPOUT_UNITS * unitMs, DROPOUT_MAX_MS)
 
     /** Принудительно завершает текущий символ (например, при остановке записи). */
     fun flush() {
         if (keyDown) {
-            onMarkEnd(runMs)
+            pendingMarkMs = runMs
             keyDown = false
             runMs = 0.0
+        }
+        if (pendingMarkMs > 0) {
+            onMarkEnd(pendingMarkMs)
+            pendingMarkMs = 0.0
         }
         emitCharacter()
     }
@@ -90,6 +112,7 @@ class MorseTimingDecoder(
         code.clear()
         keyDown = false
         runMs = 0.0
+        pendingMarkMs = 0.0
         charEmitted = true
         wordEmitted = true
         listener.onCodeChanged("")
@@ -179,6 +202,8 @@ class MorseTimingDecoder(
         private const val WORD_GAP_UNITS = 5.0
         private const val MAX_MARK_MS = 2000.0
         private const val GLITCH_UNITS = 0.4
+        private const val DROPOUT_UNITS = 0.4
+        private const val DROPOUT_MAX_MS = 60.0
         private const val GLITCH_MAX_MS = 25.0
         private const val MAX_CODE_LENGTH = 10
     }

@@ -40,6 +40,8 @@ object MorseSignal {
         noise: Double = 0.0,
         leadMs: Double = 300.0,
         seed: Int = 2,
+        /** Множитель амплитуды в зависимости от времени (мс) с начала посылки. */
+        shape: (Double) -> Double = { 1.0 },
     ): ShortArray {
         val random = Random(seed)
         val all = listOf(false to leadMs) + timings
@@ -54,7 +56,7 @@ object MorseSignal {
                 var v = (random.nextDouble() * 2 - 1) * noise
                 if (down) {
                     val ramp = min(1.0, min(i, len - i).toDouble() / rampSamples)
-                    v += amplitude * ramp * sin(2 * PI * freq * pos / sampleRate)
+                    v += amplitude * shape(i * 1000.0 / sampleRate) * ramp * sin(2 * PI * freq * pos / sampleRate)
                 }
                 out[pos++] = (v.coerceIn(-1.0, 1.0) * 32767).toInt().toShort()
             }

@@ -166,7 +166,10 @@ class FrequencyTracker(
 class KeyDetector(
     /** Минимальное превышение сигнала над шумом, дБ, чтобы вообще считать его тоном. */
     @Volatile var minSnrDb: Double = 10.0,
-    /** Порог громкости, дБ: более тихий тон игнорируется. */
+    /**
+     * Порог громкости, дБ: посылка не начинается, пока тон тише порога.
+     * Уже начавшаяся посылка порогом не обрывается — тон часто проседает к концу тире.
+     */
     @Volatile var minLevelDb: Double = Double.NEGATIVE_INFINITY,
 ) {
     var noiseDb = Double.NaN
@@ -178,8 +181,10 @@ class KeyDetector(
 
     private var pending = false
     private var pendingFrames = 0
+    private var downFrames = 0
 
     fun reset() {
+        downFrames = 0
         noiseDb = Double.NaN
         peakDb = Double.NaN
         keyDown = false
@@ -207,13 +212,17 @@ class KeyDetector(
         }
         if (peakDb < noiseDb) peakDb = noiseDb
 
+        // Включение — по уверенному превышению над шумом. Удержание — пока тон вообще
+        // различим над шумом: телефон (АРУ, шумоподавление) и отражения в комнате
+        // сильно меняют громкость длинной посылки, и она не должна из-за этого рваться.
         val span = peakDb - noiseDb
-        val raw = if (span < minSnrDb || levelDb < minLevelDb) {
-            false
-        } else if (keyDown) {
-            levelDb > noiseDb + span * 0.4
+        val onDb = maxOf(span * ON_FRACTION, minSnrDb)
+        // Ниже HOLD_MIN_DB опускаться нельзя: всплески шума начнут затягивать посылки.
+        val holdDb = minOf(onDb, maxOf(span * HOLD_FRACTION, HOLD_MIN_DB))
+        val raw = if (keyDown) {
+            levelDb > noiseDb + holdDb
         } else {
-            levelDb > noiseDb + span * 0.6
+            span >= minSnrDb && levelDb >= minLevelDb && levelDb > noiseDb + onDb
         }
 
         // Смена состояния засчитывается, только если держится два кадра подряд.
@@ -229,11 +238,24 @@ class KeyDetector(
             keyDown = raw
             pendingFrames = 0
         }
+
+        // Страховка: если «тон» держится слишком долго, это выросший шум, а не посылка.
+        downFrames = if (keyDown) downFrames + 1 else 0
+        if (downFrames > MAX_DOWN_FRAMES) {
+            noiseDb = levelDb
+            peakDb = levelDb
+            keyDown = false
+            downFrames = 0
+        }
         return keyDown
     }
 
     companion object {
         const val DEBOUNCE_FRAMES = 2
+        private const val ON_FRACTION = 0.5
+        private const val HOLD_FRACTION = 0.25
+        private const val HOLD_MIN_DB = 11.0
+        private const val MAX_DOWN_FRAMES = 400
 
         fun toDb(power: Double): Double = 10.0 * log10(power + 1e-12)
     }
