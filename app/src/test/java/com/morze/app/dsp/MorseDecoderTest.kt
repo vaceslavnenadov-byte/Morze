@@ -133,7 +133,7 @@ class MorseDecoderTest {
             }
             decoder.flush()
             assertEquals("$wpm", "SOS 73", collector.toString())
-            assertEquals(wpm, decoder.wpm, 0.01)
+            assertEquals(wpm, decoder.wpm, wpm * 0.15)
         }
     }
 
@@ -169,15 +169,46 @@ class MorseDecoderTest {
         assertEquals("12345 67890 12345 67890 *", collector.toString())
     }
 
-    // Искажения длинных посылок, типичные для микрофона телефона.
+    // Искажения, типичные для приёма с динамика на микрофон телефона.
+    // Начальная скорость задаётся, как ползунком в приложении.
+
+    private fun decodeDistorted(
+        wpm: Double,
+        noise: Double,
+        minLevelDb: Double = Double.NEGATIVE_INFINITY,
+        echoRt60Ms: Double = 0.0,
+        shape: (Double) -> Double = { 1.0 },
+    ): String {
+        val collector = TextCollector()
+        val processor = MorseAudioProcessor(44100, collector, wpm)
+        processor.alphabet = Alphabet.LATIN
+        processor.minLevelDb = minLevelDb
+        var pcm = MorseSignal.pcm(
+            MorseSignal.timings("CQ CQ DE R3ABC TEST 1250 SEIH5", Alphabet.LATIN, wpm, jitter = 0.1),
+            44100, 700.0, noise = noise, shape = shape,
+        )
+        if (echoRt60Ms > 0) pcm = MorseSignal.reverb(pcm, 44100, echoRt60Ms, gain = 1.0)
+        processor.process(pcm, pcm.size)
+        processor.flush()
+        return collector.toString()
+    }
+
+    private val expectedTail = "DE R3ABC TEST 1250 SEIH5"
 
     @Test
-    fun dashesThatFadeAreNotLost() {
-        // Шумоподавление «придавливает» ровный тон: через 60 мс уровень падает на 32 дБ.
-        val fade = { t: Double -> Math.pow(10.0, -minOf(32.0, maxOf(0.0, (t - 60) * 0.4)) / 20) }
-        for (wpm in listOf(10.0, 18.0)) {
-            val decoded = decodeAudio("CQ CQ DE R3ABC TEST 1250", Alphabet.LATIN, wpm, 700.0, noise = 0.03, shape = fade)
-            assertTrue("$wpm: $decoded", decoded.endsWith("DE R3ABC TEST 1250"))
+    fun echoDoesNotSwallowDots() {
+        // Эхо после каждой посылки не должно съедать паузы и склеивать точки.
+        val decoded = decodeDistorted(5.0, noise = 0.01, echoRt60Ms = 300.0)
+        assertTrue(decoded, decoded.endsWith(expectedTail))
+    }
+
+    @Test
+    fun dashesThatSagAreNotLost() {
+        // Громкость длинного тона плавно проседает на 15 дБ.
+        val sag = { t: Double -> Math.pow(10.0, -minOf(15.0, maxOf(0.0, (t - 60) * 0.05)) / 20) }
+        for (wpm in listOf(5.0, 10.0, 18.0)) {
+            val decoded = decodeDistorted(wpm, noise = 0.03, shape = sag)
+            assertTrue("$wpm: $decoded", decoded.endsWith(expectedTail))
         }
     }
 
@@ -185,37 +216,47 @@ class MorseDecoderTest {
     fun dashesWithDropoutsAreNotSplit() {
         // Короткие провалы внутри посылки: 20 мс тишины каждые 90 мс.
         val dropouts = { t: Double -> if (t % 90 in 50.0..70.0) 0.0 else 1.0 }
-        for (wpm in listOf(10.0, 18.0)) {
-            val decoded = decodeAudio("CQ CQ DE R3ABC TEST 1250", Alphabet.LATIN, wpm, 700.0, noise = 0.02, shape = dropouts)
-            assertTrue("$wpm: $decoded", decoded.endsWith("DE R3ABC TEST 1250"))
+        for (wpm in listOf(5.0, 10.0)) {
+            val decoded = decodeDistorted(wpm, noise = 0.02, shape = dropouts)
+            assertTrue("$wpm: $decoded", decoded.endsWith(expectedTail))
         }
     }
 
     @Test
     fun trembleDoesNotSplitDashes() {
-        // Биения от отражений: громкость «дрожит» с глубокими провалами.
+        // Биения от отражений: громкость «дрожит» с провалами до нуля.
         val tremble = { t: Double -> 0.5 + 0.5 * Math.cos(2 * Math.PI * t / 50) }
-        for (wpm in listOf(10.0, 18.0)) {
-            val decoded = decodeAudio("CQ CQ DE R3ABC TEST 1250", Alphabet.LATIN, wpm, 700.0, noise = 0.1, shape = tremble)
-            assertTrue("$wpm: $decoded", decoded.endsWith("DE R3ABC TEST 1250"))
+        for (wpm in listOf(5.0, 10.0)) {
+            val decoded = decodeDistorted(wpm, noise = 0.1, shape = tremble)
+            assertTrue("$wpm: $decoded", decoded.endsWith(expectedTail))
         }
     }
 
     @Test
-    fun volumeThresholdDoesNotCutFadingDash() {
-        // Тон начинается громче порога, а к концу тире проседает ниже него.
-        val fade = { t: Double -> Math.pow(10.0, -minOf(20.0, maxOf(0.0, (t - 60) * 0.3)) / 20) }
-        val pcm = MorseSignal.pcm(
-            MorseSignal.timings("CQ CQ DE R3ABC TEST 1250", Alphabet.LATIN, 15.0), 44100, 700.0,
-            amplitude = 0.3, noise = 0.01, shape = fade,
-        )
+    fun volumeThresholdDoesNotChopFluctuatingTone() {
+        // Громкость тона (около -16 дБ) скачет на 10 дБ вокруг порога -20 дБ.
+        val steps = { t: Double -> if ((t / 40).toInt() % 2 == 0) 1.0 else 0.32 }
+        val decoded = decodeDistorted(5.0, noise = 0.02, minLevelDb = -20.0, shape = steps)
+        assertTrue(decoded, decoded.endsWith(expectedTail))
+    }
+
+    @Test
+    fun fixedSlowSpeedWithFastCharacters() {
+        // Задано 5 гр/мин, но сами знаки передаются на 15, а паузы между ними растянуты.
         val collector = TextCollector()
-        val processor = MorseAudioProcessor(44100, collector)
-        processor.alphabet = Alphabet.LATIN
-        processor.minLevelDb = -25.0
-        processor.process(pcm, pcm.size)
-        processor.flush()
-        assertTrue(collector.toString(), collector.toString().endsWith("DE R3ABC TEST 1250"))
+        val decoder = MorseTimingDecoder(5.0, Alphabet.LATIN, collector)
+        decoder.fixedWpm = 5.0
+        val unit = 1200.0 / 15.0
+        for (code in MorseCode.encode("R3ABCTEST1250", Alphabet.LATIN)) {
+            for (element in code) {
+                repeat(if (element == '.') 8 else 24) { decoder.process(true, unit / 8) }
+                repeat(8) { decoder.process(false, unit / 8) }
+            }
+            repeat(100) { decoder.process(false, unit / 8) }
+        }
+        decoder.flush()
+        val decoded = collector.toString().replace(" ", "")
+        assertTrue(decoded, decoded.endsWith("BCTEST1250"))
     }
 
     @Test

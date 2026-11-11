@@ -39,9 +39,13 @@ class MorseTimingDecoder(
     /**
      * Заданная скорость в группах (словах) в минуту; 0 — определять автоматически.
      * Одна группа из пяти знаков по длительности равна стандартному слову PARIS.
+     *
+     * Заданная скорость действует, пока сам сигнал явно не покажет другую длительность
+     * точек и тире: на малых скоростях знаки часто передают быстрее, растягивая паузы.
      */
     @Volatile
     var fixedWpm = 0.0
+    private var appliedFixedWpm = 0.0
 
     /** Режим цифрового текста: все знаки расшифровываются как цифры. */
     @Volatile
@@ -62,9 +66,13 @@ class MorseTimingDecoder(
     /** Подаёт очередной кадр длительностью [frameMs] с состоянием ключа [down]. */
     fun process(down: Boolean, frameMs: Double) {
         val fixed = fixedWpm
-        if (fixed > 0 && unitMs != 1200.0 / fixed) {
-            unitMs = 1200.0 / fixed
-            dotDashThresholdMs = 2.0 * unitMs
+        if (fixed != appliedFixedWpm) {
+            appliedFixedWpm = fixed
+            if (fixed > 0) {
+                unitMs = 1200.0 / fixed
+                dotDashThresholdMs = 2.0 * unitMs
+                recentMarks.clear()
+            }
         }
         if (down != keyDown) {
             if (keyDown) {
@@ -123,7 +131,7 @@ class MorseTimingDecoder(
         // слишком короткий — щелчок или всплеск шума.
         if (durationMs > MAX_MARK_MS) return
         if (durationMs < minOf(GLITCH_UNITS * unitMs, GLITCH_MAX_MS)) return
-        if (fixedWpm <= 0) learn(durationMs)
+        learn(durationMs)
         code.append(if (durationMs < dotDashThresholdMs) '.' else '-')
         if (code.length > MAX_CODE_LENGTH) code.clear()
         charEmitted = false
@@ -175,7 +183,7 @@ class MorseTimingDecoder(
             // В истории есть и точки, и тире.
             dotDashThresholdMs = sqrt(dotMs * dashMs)
             unitMs = (dotMs + dashMs / 3.0) / 2.0
-        } else {
+        } else if (fixedWpm <= 0) {
             // Все посылки одного типа: решаем, точки это или тире, по прежнему порогу.
             val mean = exp(logs.average())
             unitMs = if (mean < dotDashThresholdMs) mean else mean / 3.0
@@ -202,7 +210,7 @@ class MorseTimingDecoder(
         private const val WORD_GAP_UNITS = 5.0
         private const val MAX_MARK_MS = 2000.0
         private const val GLITCH_UNITS = 0.4
-        private const val DROPOUT_UNITS = 0.4
+        private const val DROPOUT_UNITS = 0.35
         private const val DROPOUT_MAX_MS = 60.0
         private const val GLITCH_MAX_MS = 25.0
         private const val MAX_CODE_LENGTH = 10

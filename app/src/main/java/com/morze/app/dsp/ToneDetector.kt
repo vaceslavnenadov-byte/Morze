@@ -80,7 +80,7 @@ class FrequencyTracker(
         for (k in mags.indices) if (mags[k] > mags[peak]) peak = k
         val median = mags.sortedArray()[mags.size / 2]
         // Пик должен заметно возвышаться над шумом, иначе в этом окне тона нет.
-        if (mags[peak] < median * PEAK_TO_MEDIAN) return
+        if (mags[peak] <= median * PEAK_TO_MEDIAN || mags[peak] < MIN_PEAK_POWER) return
 
         // Параболическая интерполяция для точности лучше одного бина.
         val bin = lo + peak
@@ -110,6 +110,7 @@ class FrequencyTracker(
 
     companion object {
         private const val PEAK_TO_MEDIAN = 30.0
+        private const val MIN_PEAK_POWER = 1e-9
         private const val TOLERANCE_HZ = 40.0
         private const val HITS_TO_SWITCH = 4
 
@@ -167,8 +168,9 @@ class KeyDetector(
     /** Минимальное превышение сигнала над шумом, дБ, чтобы вообще считать его тоном. */
     @Volatile var minSnrDb: Double = 10.0,
     /**
-     * Порог громкости, дБ: посылка не начинается, пока тон тише порога.
-     * Уже начавшаяся посылка порогом не обрывается — тон часто проседает к концу тире.
+     * Порог громкости, дБ: посылка не начинается, пока тон тише порога, и заканчивается,
+     * когда тон опускается заметно ниже него (запас [LEVEL_HYSTERESIS_DB] — чтобы
+     * колебания громкости возле порога не рвали длинную посылку).
      */
     @Volatile var minLevelDb: Double = Double.NEGATIVE_INFINITY,
 ) {
@@ -183,7 +185,11 @@ class KeyDetector(
     private var pendingFrames = 0
     private var downFrames = 0
 
+    /** Огибающая текущей посылки: быстро растёт вместе с тоном и медленно спадает. */
+    private var markDb = Double.NaN
+
     fun reset() {
+        markDb = Double.NaN
         downFrames = 0
         noiseDb = Double.NaN
         peakDb = Double.NaN
@@ -212,17 +218,20 @@ class KeyDetector(
         }
         if (peakDb < noiseDb) peakDb = noiseDb
 
-        // Включение — по уверенному превышению над шумом. Удержание — пока тон вообще
-        // различим над шумом: телефон (АРУ, шумоподавление) и отражения в комнате
-        // сильно меняют громкость длинной посылки, и она не должна из-за этого рваться.
+        // Начало посылки: тон заметно выше шума и не намного тише недавних посылок —
+        // иначе за новую посылку принимался бы затухающий «хвост» эха предыдущей.
+        // Конец посылки: уровень резко упал относительно её собственной огибающей.
+        // Сравнение с огибающей, а не с шумом, даёт быстрый конец при громком сигнале
+        // (эхо не съедает паузу) и терпит плавное проседание громкости длинного тона.
         val span = peakDb - noiseDb
         val onDb = maxOf(span * ON_FRACTION, minSnrDb)
-        // Ниже HOLD_MIN_DB опускаться нельзя: всплески шума начнут затягивать посылки.
-        val holdDb = minOf(onDb, maxOf(span * HOLD_FRACTION, HOLD_MIN_DB))
+        markDb = if (!keyDown || markDb.isNaN() || levelDb > markDb) levelDb else markDb - MARK_DECAY_DB
         val raw = if (keyDown) {
-            levelDb > noiseDb + holdDb
+            levelDb > noiseDb + minOf(onDb, HOLD_MIN_DB) &&
+                levelDb > markDb - RELEASE_DROP_DB
         } else {
-            span >= minSnrDb && levelDb >= minLevelDb && levelDb > noiseDb + onDb
+            span >= minSnrDb && levelDb >= minLevelDb &&
+                levelDb > noiseDb + onDb && levelDb > peakDb - ON_DROP_DB
         }
 
         // Смена состояния засчитывается, только если держится два кадра подряд.
@@ -253,7 +262,9 @@ class KeyDetector(
     companion object {
         const val DEBOUNCE_FRAMES = 2
         private const val ON_FRACTION = 0.5
-        private const val HOLD_FRACTION = 0.25
+        private const val RELEASE_DROP_DB = 12.0
+        private const val ON_DROP_DB = 9.0
+        private const val MARK_DECAY_DB = 0.3
         private const val HOLD_MIN_DB = 11.0
         private const val MAX_DOWN_FRAMES = 400
 

@@ -63,6 +63,28 @@ object MorseSignal {
         }
         return out
     }
+
+    /** Эхо помещения: к прямому звуку добавляются затухающие отражения. */
+    fun reverb(pcm: ShortArray, sampleRate: Int, rt60Ms: Double, gain: Double, seed: Int = 1): ShortArray {
+        val random = Random(seed)
+        val taps = 150
+        val span = rt60Ms * sampleRate / 1000
+        val delays = IntArray(taps) { (random.nextDouble() * span).toInt() + 200 }
+        val gains = DoubleArray(taps) {
+            val sign = if (random.nextBoolean()) 1 else -1
+            sign * gain * 4 / Math.sqrt(taps.toDouble()) * Math.pow(10.0, -3.0 * delays[it] / span)
+        }
+        val out = DoubleArray(pcm.size)
+        for (i in pcm.indices) {
+            val v = pcm[i].toDouble()
+            out[i] += v
+            for (k in 0 until taps) {
+                val j = i + delays[k]
+                if (j < out.size) out[j] += v * gains[k]
+            }
+        }
+        return ShortArray(pcm.size) { out[it].coerceIn(-32767.0, 32767.0).toInt().toShort() }
+    }
 }
 
 /** Собирает результат декодирования в строку. */
